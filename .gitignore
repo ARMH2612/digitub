@@ -6,3 +6,4 @@ pubmedbert_8bit/
 *.bin
 *.pt
 *.safetensors
+*.zip
