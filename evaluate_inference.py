@@ -6,22 +6,41 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 from datasets import load_dataset
 
-MODEL_DIR = "pubmedbert_quantized"  # or "pubmedbert_quantized" or use bitsandbytes path
-USE_BNB = False  # set True if you loaded via bitsandbytes (then ensure model loaded in that script)
+MODEL_DIR = "pubmedbert_8bit" 
+USE_BNB = True  # set True if you loaded via bitsandbytes
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=True)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR, num_labels=3)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR, num_labels=3, device_map="auto")
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-state = torch.load(f"{MODEL_DIR}/pytorch_model.bin", map_location=device)
-model.load_state_dict(state)
-model.to(device)
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# state = torch.load(f"{MODEL_DIR}/pytorch_model.bin", map_location=device)
+# model.load_state_dict(state)
+# model.to(device)
 model.eval()
 
-# small test dataset: use your saved test set or subsample PubMedQA
-ds = load_dataset("pubmed_qa", "pqa_labeled")["train"].map(lambda ex: {"text": "QUESTION: "+ex["question"]+" CONTEXT: "+(" ".join(ex["context"].values()) if isinstance(ex["context"], dict) else str(ex["context"])),"label":  {"no":0,"yes":1,"maybe":2}.get(ex["final_decision"],2)})\
-               .train_test_split(test_size=0.1, seed=42)["test"]
+def preprocess(ex):
+    ctx = ex["context"]
 
+    if isinstance(ctx, dict):
+        parts = []
+        for v in ctx.values():
+            if isinstance(v, list):
+                parts.append(" ".join(v))   
+            else:
+                parts.append(str(v))        
+        context_str = " ".join(parts)
+    
+    else:
+        context_str = str(ctx)
+
+    label_map = {"no": 0, "yes": 1, "maybe": 2}
+    return {
+        "text": f"QUESTION: {ex['question']} CONTEXT: {context_str}",
+        "label": label_map.get(ex["final_decision"], 2)
+    }
+
+
+ds = load_dataset("pubmed_qa", "pqa_labeled")["train"].map(preprocess).train_test_split(test_size=0.1, seed=42)["test"]
 texts = ds["text"]
 labels = ds["label"]
 
@@ -30,7 +49,7 @@ preds = []
 bs = 8
 for i in range(0, len(texts), bs):
     batch = texts[i:i+bs]
-    inputs = tokenizer(batch, return_tensors="pt", truncation=True, padding=True, max_length=256).to(device)
+    inputs = tokenizer(batch, return_tensors="pt", truncation=True, padding=True, max_length=256)
     with torch.no_grad():
         t0 = time.time()
         logits = model(**inputs).logits
