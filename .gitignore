@@ -1,2 +1,8 @@
 venv
-PubMedBERT_lora_weighted
+PubMedBERT_lora_weighted/
+pubmedbert_merged/
+pubmedbert_quantized/
+pubmedbert_8bit/
+*.bin
+*.pt
+*.safetensors
